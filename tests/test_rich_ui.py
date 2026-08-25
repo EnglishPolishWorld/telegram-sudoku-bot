@@ -1,6 +1,6 @@
 import unittest
 
-from rich_ui import game_view, size_picker
+from rich_ui import creator_view, game_view, size_picker
 from storage import Game
 
 
@@ -20,6 +20,11 @@ class RichUiTests(unittest.TestCase):
             for cell in row:
                 data = cell["text"]["button"]["callback_data"]
                 self.assertLessEqual(len(data.encode()), 64)
+
+    def test_creator_has_start_button(self):
+        view = creator_view()
+        self.assertEqual(view["blocks"][-1]["buttons"][0]["callback_data"], "menu:0")
+        self.assertIn("@etetnall_dog", view["blocks"][1]["text"])
 
 
 if __name__ == "__main__":
