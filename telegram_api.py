@@ -34,15 +34,32 @@ class TelegramAPI:
     def send_rich(self, chat_id: int, rich_message: dict) -> dict:
         return self.call("sendRichMessage", {"chat_id": chat_id, "rich_message": rich_message})
 
-    def edit_rich(self, chat_id: int, message_id: int, rich_message: dict) -> dict:
-        return self.call(
-            "editMessageText",
-            {"chat_id": chat_id, "message_id": message_id, "rich_message": rich_message},
-        )
+    def edit_rich(
+        self, chat_id: int, message_id: int, rich_message: dict, inline_message_id: str | None = None
+    ) -> dict:
+        payload = {"rich_message": rich_message}
+        if inline_message_id:
+            payload["inline_message_id"] = inline_message_id
+        else:
+            payload.update({"chat_id": chat_id, "message_id": message_id})
+        return self.call("editMessageText", payload)
+
+    def answer_inline(self, query_id: str, rich_message: dict) -> None:
+        self.call("answerInlineQuery", {
+            "inline_query_id": query_id,
+            "cache_time": 0,
+            "is_personal": True,
+            "results": [{
+                "type": "article",
+                "id": "sudoku-menu-v1",
+                "title": "Начать Sudoku",
+                "description": "Классика, Killer Sudoku и ежедневная игра",
+                "input_message_content": {"rich_message": rich_message},
+            }],
+        })
 
     def answer_callback(self, callback_id: str, text: str = "", alert: bool = False) -> None:
         payload = {"callback_query_id": callback_id, "show_alert": alert}
         if text:
             payload["text"] = text
         self.call("answerCallbackQuery", payload)
-
