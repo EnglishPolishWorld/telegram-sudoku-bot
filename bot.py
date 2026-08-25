@@ -25,6 +25,8 @@ class SudokuBot:
             self.handle_message(update["message"])
         elif "callback_query" in update:
             self.handle_callback(update["callback_query"])
+        elif "inline_query" in update:
+            self.api.answer_inline(update["inline_query"]["id"], main_menu())
 
     def handle_message(self, message: dict) -> None:
         text = message.get("text", "").split("@", 1)[0].strip().lower()
@@ -50,41 +52,45 @@ class SudokuBot:
         callback_id = callback["id"]
         data = callback.get("data", "")
         message = callback.get("message")
+        inline_message_id = callback.get("inline_message_id")
         user_id = callback["from"]["id"]
-        if not message:
+        if not message and not inline_message_id:
             self.api.answer_callback(callback_id, "Сообщение игры недоступно.", True)
             return
-        chat_id = message["chat"]["id"]
-        message_id = message["message_id"]
+        chat_id = message["chat"]["id"] if message else 0
+        message_id = message["message_id"] if message else 0
+
+        def edit(view: dict) -> None:
+            self.api.edit_rich(chat_id, message_id, view, inline_message_id)
 
         try:
             if data.startswith("menu:"):
                 self.api.answer_callback(callback_id)
-                self.api.edit_rich(chat_id, message_id, main_menu())
+                edit(main_menu())
                 return
             if data.startswith("mode:"):
                 self.api.answer_callback(callback_id)
-                self.api.edit_rich(chat_id, message_id, difficulty_picker(data.split(":", 1)[1]))
+                edit(difficulty_picker(data.split(":", 1)[1]))
                 return
             if data.startswith("diff:"):
                 _, mode, difficulty = data.split(":")
                 self.api.answer_callback(callback_id)
-                self.api.edit_rich(chat_id, message_id, size_picker(mode, difficulty))
+                edit(size_picker(mode, difficulty))
                 return
             if data.startswith("stats:"):
                 self.api.answer_callback(callback_id)
-                self.api.edit_rich(chat_id, message_id, stats_view(*self.storage.stats(user_id)))
+                edit(stats_view(*self.storage.stats(user_id)))
                 return
             if data.startswith("leaders:"):
                 self.api.answer_callback(callback_id)
-                self.api.edit_rich(chat_id, message_id, leaderboard_view(self.storage.leaderboard()))
+                edit(leaderboard_view(self.storage.leaderboard()))
                 return
             if data.startswith("daily:"):
                 seed = int(date.today().strftime("%Y%m%d"))
                 puzzle, solution = make_puzzle(9, seed=seed, difficulty="normal")
                 game = self.storage.create(user_id, chat_id, message_id, 9, puzzle, solution, "classic", "normal", [], True)
                 self.api.answer_callback(callback_id)
-                self.api.edit_rich(chat_id, message_id, game_view(game))
+                edit(game_view(game))
                 return
             if data.startswith("new:"):
                 _, mode, difficulty, raw_size = data.split(":")
@@ -100,7 +106,7 @@ class SudokuBot:
                     puzzle = [x if i in set(shown[:keep]) else 0 for i, x in enumerate(puzzle)]
                 game = self.storage.create(user_id, chat_id, message_id, size, puzzle, solution, mode, difficulty, cages)
                 self.api.answer_callback(callback_id)
-                self.api.edit_rich(chat_id, message_id, game_view(game))
+                edit(game_view(game))
                 return
 
             action, game_id, raw_value = data.split(":", 2)
@@ -134,10 +140,10 @@ class SudokuBot:
                     if game.hearts <= 0:
                         self.storage.finish(game, False)
                         self.api.answer_callback(callback_id, "Сердца закончились.", True)
-                        self.api.edit_rich(chat_id, message_id, main_menu("💔 Вы проиграли. Попробуйте ещё раз!"))
+                        edit(main_menu("💔 Вы проиграли. Попробуйте ещё раз!"))
                     else:
                         self.api.answer_callback(callback_id, f"Ошибка. Осталось сердец: {game.hearts}", True)
-                        self.api.edit_rich(chat_id, message_id, game_view(game))
+                        edit(game_view(game))
                     return
                 game.history = (game.history or []) + [(game.selected, game.board[game.selected])]
                 game.board[game.selected] = number
@@ -178,7 +184,7 @@ class SudokuBot:
                 self.api.answer_callback(callback_id, "Неизвестное действие.")
                 return
 
-            self.api.edit_rich(chat_id, message_id, game_view(game))
+            edit(game_view(game))
         except (ValueError, IndexError):
             self.api.answer_callback(callback_id, "Некорректное действие.", True)
 
@@ -214,7 +220,7 @@ def main() -> None:
     log.info("Sudoku bot started")
     while True:
         try:
-            updates = api.call("getUpdates", {"offset": offset, "timeout": 30, "allowed_updates": ["message", "callback_query"]}, timeout=40)
+            updates = api.call("getUpdates", {"offset": offset, "timeout": 30, "allowed_updates": ["message", "callback_query", "inline_query"]}, timeout=40)
             for update in updates:
                 offset = update["update_id"] + 1
                 try:
