@@ -5,7 +5,7 @@ import os
 import time
 from datetime import date
 
-from rich_ui import difficulty_picker, game_view, leaderboard_view, main_menu, size_picker, stats_view
+from rich_ui import creator_view, difficulty_picker, game_view, leaderboard_view, main_menu, size_picker, stats_view
 from storage import Game, Storage
 from sudoku import SPECS, is_complete, make_cages, make_puzzle
 from telegram_api import TelegramAPI, TelegramError
@@ -30,6 +30,8 @@ class SudokuBot:
         text = message.get("text", "").split("@", 1)[0].strip().lower()
         if text in {"/start", "/sudoku", "/new"}:
             self.api.send_rich(message["chat"]["id"], main_menu())
+        elif text == "/creator":
+            self.api.send_rich(message["chat"]["id"], creator_view())
         elif text == "/stats":
             self.api.send_rich(message["chat"]["id"], stats_view(*self.storage.stats(message["from"]["id"])))
         elif text in {"/top", "/rating"}:
@@ -198,6 +200,15 @@ def main() -> None:
     if not token:
         raise SystemExit("Токен не указан")
     api = TelegramAPI(token)
+    commands = [
+        {"command": "start", "description": "Запустить Sudoku"},
+        {"command": "creator", "description": "Создатель бота и обратная связь"},
+        {"command": "group", "description": "Общая игра в группе"},
+        {"command": "stats", "description": "Моя статистика"},
+        {"command": "top", "description": "Рейтинг игроков"},
+    ]
+    api.call("setMyCommands", {"commands": commands})
+    api.call("setMyCommands", {"commands": commands, "scope": {"type": "all_group_chats"}})
     bot = SudokuBot(api, Storage(os.getenv("DATABASE_PATH", "sudoku.sqlite3")))
     offset = 0
     log.info("Sudoku bot started")
