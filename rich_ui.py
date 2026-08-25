@@ -33,7 +33,7 @@ def main_menu(note: str = "") -> dict:
 def creator_view() -> dict:
     return {"blocks": [
         {"type": "heading", "size": 3, "text": "Создатель бота"},
-        {"type": "paragraph", "text": "Создатель бота — @etetnall_dog\nПо всем вопросам и предложениям пишите ему."},
+        {"type": "paragraph", "text": "Создатель бота — @eternall_dog\nПо всем вопросам и предложениям пишите ему."},
         {"type": "buttons", "align": "center", "buttons": [
             _button("▶ Начать игру", "menu:0", "primary")
         ]},
