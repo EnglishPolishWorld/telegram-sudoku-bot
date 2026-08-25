@@ -30,6 +30,16 @@ def main_menu(note: str = "") -> dict:
     return {"blocks": blocks}
 
 
+def creator_view() -> dict:
+    return {"blocks": [
+        {"type": "heading", "size": 3, "text": "Создатель бота"},
+        {"type": "paragraph", "text": "Создатель бота — @etetnall_dog\nПо всем вопросам и предложениям пишите ему."},
+        {"type": "buttons", "align": "center", "buttons": [
+            _button("▶ Начать игру", "menu:0", "primary")
+        ]},
+    ]}
+
+
 def difficulty_picker(mode: str) -> dict:
     return {"blocks": [
         {"type": "heading", "size": 3, "text": "Killer Sudoku" if mode == "killer" else "Классическое Sudoku"},
