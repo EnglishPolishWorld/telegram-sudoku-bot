@@ -18,6 +18,12 @@ SPECS = {
     9: SudokuSpec(9, 3, 3, 36),
 }
 
+DIFFICULTY_CLUES = {
+    "easy": {4: 10, 6: 24, 9: 42},
+    "normal": {4: 8, 6: 18, 9: 36},
+    "hard": {4: 6, 6: 14, 9: 30},
+}
+
 
 def _shuffled(values: range | list[int], rng: random.Random) -> list[int]:
     result = list(values)
@@ -73,7 +79,7 @@ def count_solutions(board: list[int], spec: SudokuSpec, limit: int = 2) -> int:
     return total
 
 
-def make_puzzle(size: int, seed: int | None = None) -> tuple[list[int], list[int]]:
+def make_puzzle(size: int, seed: int | None = None, difficulty: str = "normal") -> tuple[list[int], list[int]]:
     spec = SPECS[size]
     rng = random.Random(seed)
     solution = make_solution(spec, rng)
@@ -82,13 +88,41 @@ def make_puzzle(size: int, seed: int | None = None) -> tuple[list[int], list[int
     rng.shuffle(positions)
 
     for index in positions:
-        if sum(value != 0 for value in puzzle) <= spec.clues:
+        clues = DIFFICULTY_CLUES.get(difficulty, DIFFICULTY_CLUES["normal"])[size]
+        if sum(value != 0 for value in puzzle) <= clues:
             break
         previous = puzzle[index]
         puzzle[index] = 0
         if count_solutions(puzzle.copy(), spec) != 1:
             puzzle[index] = previous
     return puzzle, solution
+
+
+def make_cages(size: int, solution: list[int], seed: int | None = None) -> list[dict]:
+    """Create connected Killer Sudoku cages covering the board."""
+    rng = random.Random(seed)
+    unused = set(range(size * size))
+    cages: list[dict] = []
+    while unused:
+        start = rng.choice(tuple(unused))
+        cells = [start]
+        unused.remove(start)
+        target_size = rng.choices([1, 2, 3, 4], weights=[1, 4, 4, 2])[0]
+        while len(cells) < target_size:
+            neighbours = []
+            for index in cells:
+                row, col = divmod(index, size)
+                for r, c in ((row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1)):
+                    candidate = r * size + c
+                    if 0 <= r < size and 0 <= c < size and candidate in unused:
+                        neighbours.append(candidate)
+            if not neighbours:
+                break
+            chosen = rng.choice(neighbours)
+            cells.append(chosen)
+            unused.remove(chosen)
+        cages.append({"cells": sorted(cells), "sum": sum(solution[i] for i in cells)})
+    return cages
 
 
 def can_place(board: list[int], size: int, index: int, value: int) -> bool:
@@ -121,4 +155,3 @@ def is_complete(board: list[int], size: int) -> bool:
             if values != expected:
                 return False
     return True
-
