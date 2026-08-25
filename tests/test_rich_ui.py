@@ -21,9 +21,9 @@ class RichUiTests(unittest.TestCase):
                 data = cell["text"]["button"]["callback_data"]
                 self.assertLessEqual(len(data.encode()), 64)
 
-    def test_creator_has_start_button(self):
+    def test_creator_contains_only_text(self):
         view = creator_view()
-        self.assertEqual(view["blocks"][-1]["buttons"][0]["callback_data"], "menu:0")
+        self.assertEqual([block["type"] for block in view["blocks"]], ["heading", "paragraph"])
         self.assertIn("@eternall_dog", view["blocks"][1]["text"])
 
 
