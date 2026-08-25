@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 import os
 import time
+from datetime import date
 
-from rich_ui import game_view, size_picker
+from rich_ui import difficulty_picker, game_view, leaderboard_view, main_menu, size_picker, stats_view
 from storage import Game, Storage
-from sudoku import SPECS, can_place, is_complete, make_puzzle
+from sudoku import SPECS, is_complete, make_cages, make_puzzle
 from telegram_api import TelegramAPI, TelegramError
 
 
@@ -28,7 +29,20 @@ class SudokuBot:
     def handle_message(self, message: dict) -> None:
         text = message.get("text", "").split("@", 1)[0].strip().lower()
         if text in {"/start", "/sudoku", "/new"}:
-            self.api.send_rich(message["chat"]["id"], size_picker())
+            self.api.send_rich(message["chat"]["id"], main_menu())
+        elif text == "/stats":
+            self.api.send_rich(message["chat"]["id"], stats_view(*self.storage.stats(message["from"]["id"])))
+        elif text in {"/top", "/rating"}:
+            self.api.send_rich(message["chat"]["id"], leaderboard_view(self.storage.leaderboard()))
+        elif text == "/group":
+            if message["chat"].get("type") == "private":
+                self.api.send_rich(message["chat"]["id"], main_menu("Команда /group предназначена для групп."))
+                return
+            puzzle, solution = make_puzzle(9, difficulty="normal")
+            cages: list[dict] = []
+            sent = self.api.send_rich(message["chat"]["id"], main_menu("Создаю общую игру…"))
+            game = self.storage.create(0, message["chat"]["id"], sent["message_id"], 9, puzzle, solution, "classic", "normal", cages)
+            self.api.edit_rich(message["chat"]["id"], sent["message_id"], game_view(game))
 
     def handle_callback(self, callback: dict) -> None:
         callback_id = callback["id"]
@@ -42,16 +56,47 @@ class SudokuBot:
         message_id = message["message_id"]
 
         try:
-            if data == "sizes":
+            if data.startswith("menu:"):
                 self.api.answer_callback(callback_id)
-                self.api.edit_rich(chat_id, message_id, size_picker())
+                self.api.edit_rich(chat_id, message_id, main_menu())
+                return
+            if data.startswith("mode:"):
+                self.api.answer_callback(callback_id)
+                self.api.edit_rich(chat_id, message_id, difficulty_picker(data.split(":", 1)[1]))
+                return
+            if data.startswith("diff:"):
+                _, mode, difficulty = data.split(":")
+                self.api.answer_callback(callback_id)
+                self.api.edit_rich(chat_id, message_id, size_picker(mode, difficulty))
+                return
+            if data.startswith("stats:"):
+                self.api.answer_callback(callback_id)
+                self.api.edit_rich(chat_id, message_id, stats_view(*self.storage.stats(user_id)))
+                return
+            if data.startswith("leaders:"):
+                self.api.answer_callback(callback_id)
+                self.api.edit_rich(chat_id, message_id, leaderboard_view(self.storage.leaderboard()))
+                return
+            if data.startswith("daily:"):
+                seed = int(date.today().strftime("%Y%m%d"))
+                puzzle, solution = make_puzzle(9, seed=seed, difficulty="normal")
+                game = self.storage.create(user_id, chat_id, message_id, 9, puzzle, solution, "classic", "normal", [], True)
+                self.api.answer_callback(callback_id)
+                self.api.edit_rich(chat_id, message_id, game_view(game))
                 return
             if data.startswith("new:"):
-                size = int(data.split(":", 1)[1])
+                _, mode, difficulty, raw_size = data.split(":")
+                size = int(raw_size)
                 if size not in SPECS:
                     raise ValueError("unsupported size")
-                puzzle, solution = make_puzzle(size)
-                game = self.storage.create(user_id, chat_id, message_id, size, puzzle, solution)
+                puzzle, solution = make_puzzle(size, difficulty=difficulty)
+                cages = make_cages(size, solution) if mode == "killer" else []
+                # Killer mode keeps fewer normal clues and adds cage sums.
+                if mode == "killer":
+                    keep = max(0, len([x for x in puzzle if x]) // 3)
+                    shown = [i for i, x in enumerate(puzzle) if x]
+                    puzzle = [x if i in set(shown[:keep]) else 0 for i, x in enumerate(puzzle)]
+                game = self.storage.create(user_id, chat_id, message_id, size, puzzle, solution, mode, difficulty, cages)
                 self.api.answer_callback(callback_id)
                 self.api.edit_rich(chat_id, message_id, game_view(game))
                 return
@@ -61,14 +106,11 @@ class SudokuBot:
             if game is None:
                 self.api.answer_callback(callback_id, "Эта партия уже недоступна.", True)
                 return
-            if game.owner_id != user_id:
+            if game.owner_id not in {0, user_id}:
                 self.api.answer_callback(callback_id, "Эту головоломку начал другой игрок.", True)
                 return
 
-            if action == "again":
-                self._restart(game)
-                self.api.answer_callback(callback_id)
-            elif action == "cell":
+            if action == "cell":
                 index = int(raw_value)
                 if game.puzzle[index]:
                     self.api.answer_callback(callback_id, "Это исходная цифра — её менять нельзя.")
@@ -83,15 +125,53 @@ class SudokuBot:
                 number = int(raw_value)
                 if not 0 <= number <= game.size:
                     raise ValueError("invalid number")
-                if not can_place(game.board, game.size, game.selected, number):
-                    self.api.answer_callback(callback_id, "Здесь получится повтор.")
+                if number and number != game.solution[game.selected]:
+                    game.hearts -= 1
+                    game.mistakes += 1
+                    self.storage.save(game)
+                    if game.hearts <= 0:
+                        self.storage.finish(game, False)
+                        self.api.answer_callback(callback_id, "Сердца закончились.", True)
+                        self.api.edit_rich(chat_id, message_id, main_menu("💔 Вы проиграли. Попробуйте ещё раз!"))
+                    else:
+                        self.api.answer_callback(callback_id, f"Ошибка. Осталось сердец: {game.hearts}", True)
+                        self.api.edit_rich(chat_id, message_id, game_view(game))
                     return
+                game.history = (game.history or []) + [(game.selected, game.board[game.selected])]
                 game.board[game.selected] = number
                 game.finished = is_complete(game.board, game.size)
                 if not game.finished:
                     game.selected = self._next_empty(game)
                 self.storage.save(game)
+                if game.finished:
+                    self.storage.finish(game, True)
                 self.api.answer_callback(callback_id, "Готово!" if game.finished else "")
+            elif action == "undo":
+                if not game.history:
+                    self.api.answer_callback(callback_id, "Отменять пока нечего.")
+                    return
+                index, previous = game.history.pop()
+                game.board[index] = previous
+                game.selected = index
+                self.storage.save(game)
+                self.api.answer_callback(callback_id)
+            elif action == "hint":
+                if game.hints <= 0:
+                    self.api.answer_callback(callback_id, "Подсказки закончились.")
+                    return
+                empty = next((i for i, value in enumerate(game.board) if value == 0), None)
+                if empty is None:
+                    self.api.answer_callback(callback_id)
+                    return
+                game.history = (game.history or []) + [(empty, 0)]
+                game.board[empty] = game.solution[empty]
+                game.hints -= 1
+                game.selected = self._next_empty(game)
+                game.finished = is_complete(game.board, game.size)
+                self.storage.save(game)
+                if game.finished:
+                    self.storage.finish(game, True)
+                self.api.answer_callback(callback_id, "Открыта одна клетка.")
             else:
                 self.api.answer_callback(callback_id, "Неизвестное действие.")
                 return
@@ -99,20 +179,6 @@ class SudokuBot:
             self.api.edit_rich(chat_id, message_id, game_view(game))
         except (ValueError, IndexError):
             self.api.answer_callback(callback_id, "Некорректное действие.", True)
-
-    def _restart(self, game: Game) -> None:
-        puzzle, solution = make_puzzle(game.size)
-        game.puzzle = puzzle
-        game.board = puzzle.copy()
-        game.solution = solution
-        game.selected = None
-        game.finished = False
-        # Restart keeps the same compact game id; persist every changed field.
-        self.storage.db.execute(
-            "UPDATE games SET puzzle = ?, board = ?, solution = ?, selected = NULL, finished = 0 WHERE id = ?",
-            (",".join(map(str, puzzle)), ",".join(map(str, puzzle)), ",".join(map(str, solution)), game.id),
-        )
-        self.storage.db.commit()
 
     @staticmethod
     def _next_empty(game: Game) -> int | None:
