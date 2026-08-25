@@ -24,7 +24,7 @@ class RichUiTests(unittest.TestCase):
     def test_creator_has_start_button(self):
         view = creator_view()
         self.assertEqual(view["blocks"][-1]["buttons"][0]["callback_data"], "menu:0")
-        self.assertIn("@etetnall_dog", view["blocks"][1]["text"])
+        self.assertIn("@eternall_dog", view["blocks"][1]["text"])
 
 
 if __name__ == "__main__":
