@@ -7,8 +7,8 @@ from storage import Game
 class RichUiTests(unittest.TestCase):
     def test_size_picker_has_three_sizes(self):
         picker = size_picker()
-        callbacks = [button["callback_data"] for button in picker["blocks"][2]["buttons"]]
-        self.assertEqual(callbacks, ["new:4", "new:6", "new:9"])
+        callbacks = [button["callback_data"] for button in picker["blocks"][1]["buttons"]]
+        self.assertEqual(callbacks, ["new:classic:normal:4", "new:classic:normal:6", "new:classic:normal:9"])
 
     def test_board_is_square_and_callbacks_are_short(self):
         game = Game("abc123", 1, 1, 1, 9, [0] * 81, [0] * 81, [1] * 81, None, False)
@@ -24,4 +24,3 @@ class RichUiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
